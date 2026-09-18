@@ -1,0 +1,25 @@
+[project]
+name = "notifications-challenge"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "leoneljfernandes", email = "leojfernandes@protonmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "email-validator>=2.3.0",
+    "fastapi>=0.141.1",
+    "fastapi-scaffold>=0.2.1",
+    "httpx>=0.28.1",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "passlib[bcrypt]>=1.7.4",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "pytest>=9.1.1",
+    "python-jose>=3.5.0",
+    "scikit-learn>=1.9.1",
+    "sqlalchemy>=2.0.54",
+    "uvicorn>=0.53.0",
+]
