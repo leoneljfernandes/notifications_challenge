@@ -1,11 +1,12 @@
 from fastapi import Depends
 from sqlalchemy.orm import Session
-from app.database import SessionLocal
+from app.database import AsyncSessionLocal
 
 def get_db():
-    db = SessionLocal()
+    db = AsyncSessionLocal()
     try:
         yield db
     finally:
         db.close()
-from app.auth import get_current_user, get_current_admin_user
+
+from app.auth import get_current_user

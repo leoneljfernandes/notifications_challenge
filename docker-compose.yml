@@ -1,0 +1,42 @@
+services:
+  # Servicio 1: Base de datos PostgreSQL
+  db:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      PYTHONPATH: /code
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Servicio 2: Backend FastAPI
+  backend:
+    build: .
+    container_name: backend_app
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/code/app:z
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    
+volumes:
+  pgdata:

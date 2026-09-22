@@ -1,37 +1,68 @@
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.future import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from fastapi import HTTPException, status
+
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
-from app.services.auth import get_password_hash
+from app.auth import (
+    create_access_token, 
+    CurrentUser , 
+    hash_password,
+    verify_password, 
+    generate_reset_token,
+    hash_reset_token,
+)
 
-def get_user(db: Session, user_id: int):
-    return db.query(User).filter(User.id == user_id).first()
+from fastapi import HTTPException
 
-def get_user_by_email(db: Session, email: str):
-    return db.query(User).filter(User.email == email).first()
+async def get_user(db: AsyncSession, user_id: int):
+    result = await db.execute(select(User).filter(User.id == user_id))
 
-def get_users(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(User).offset(skip).limit(limit).all()
+    user = result.scalars().first()
+    if not user:
+        return None
+    return user
 
-def create_user(db: Session, user: UserCreate):
-    hashed_password = get_password_hash(user.password)
-    db_user = User(email=user.email, name=user.name, hashed_password=hashed_password)
+async def get_user_by_email(db: AsyncSession, email: str):
+    result = await db.execute(select(User).filter(func.lower(User.email) == func.lower(email)))
+
+    user = result.scalars().first()
+    if not user:
+        return None
+    return user
+
+async def get_users(db: AsyncSession, skip: int = 0, limit: int = 100):
+    result = await db.execute(select(User).offset(skip).limit(limit))
+    return result.scalars().all()
+
+async def create_user(db: AsyncSession, user: UserCreate):
+    
+    db_user = User(
+        email=user.email,
+        name=user.name,
+        password_hash=hash_password(user.password),
+    )
+
     db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
     return db_user
 
-def update_user(db: Session, user_id: int, user: UserUpdate):
-    db_user = get_user(db, user_id)
-    data = user.dict(exclude_unset=True)
+async def update_user(db: AsyncSession, user_id: int, user: UserUpdate):
+
+    db_user = await get_user(db, user_id)
+    data = user.model_dump(exclude_unset=True)
     if 'password' in data:
-        data['hashed_password'] = get_password_hash(data.pop('password'))
+        data['password_hash'] = hash_password(data.pop('password'))
     for key, value in data.items():
         setattr(db_user, key, value)
-    db.commit()
-    db.refresh(db_user)
+    await db.commit()
+    await db.refresh(db_user)
     return db_user
 
-def delete_user(db: Session, user_id: int):
-    db_user = get_user(db, user_id)
-    db.delete(db_user)
-    db.commit()
+async def delete_user(db: AsyncSession, user_id: int):
+    db_user = await get_user(db, user_id)
+    await db.delete(db_user)
+    await db.commit()
