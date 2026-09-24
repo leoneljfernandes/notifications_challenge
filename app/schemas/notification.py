@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional
+from datetime import datetime
 
 
 class NotificationCreate(BaseModel):
@@ -34,7 +35,7 @@ class NotificationResponse(BaseModel):
     title: str
     message: str
     is_read: bool
-    created_at: Optional[str]
-    updated_at: Optional[str]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
     channel_type: str
     channel_metadata: Optional[dict]

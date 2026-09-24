@@ -21,6 +21,10 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    notifications = relationship("Notification", 
+                                back_populates="user", 
+                                cascade="all, delete-orphan")
+
 
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
