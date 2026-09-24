@@ -8,13 +8,15 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, UserUpdate, Token
 from app.crud.user import create_user, get_users, get_user, update_user, delete_user, get_user_by_email
 from app.database import get_db
-from app.auth import get_current_user
+from app.auth import get_current_user, get_current_admin
 from app.config import settings
 
 router = APIRouter()
 
 @router.get('/', response_model=list[UserResponse])
-async def read_users(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
+async def read_users(skip: int = 0, limit: int = 100, 
+                     db: AsyncSession = Depends(get_db),
+                     admin_user: User = Depends(get_current_admin)):
     return await get_users(db, skip=skip, limit=limit)
 
 @router.post('/', response_model=UserResponse, status_code=status.HTTP_201_CREATED)
