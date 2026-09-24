@@ -27,7 +27,7 @@ class Notification(Base):
     channel_type = Column(Enum(ChannelType), nullable=False)
     channel_metadata = Column(JSON, default={})
 
-    user: Mapped[User] = relationship("User", back_populates="notifications")
+    user: Mapped[User] = relationship("User", back_populates="notifications", lazy="selectin")
 
 
 
