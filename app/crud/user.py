@@ -2,19 +2,10 @@ from sqlalchemy import func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
-from app.auth import (
-    create_access_token, 
-    CurrentUser , 
-    hash_password,
-    verify_password, 
-    generate_reset_token,
-    hash_reset_token,
-)
+from app.auth import hash_password
 
-from fastapi import HTTPException
 
 async def get_user(db: AsyncSession, user_id: int):
     result = await db.execute(select(User).filter(User.id == user_id))
