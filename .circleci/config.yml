@@ -5,7 +5,10 @@ jobs:
   test-python:
     # Install dependencies and run tests
     docker:
-      - image: cimg/python:3.14
+      - image: cimg/python:3.12
+    environment:
+      SECRET_KEY: "clave_secreta_para_tests_circleci"
+      PYTHONPATH: "."
     steps:
       - checkout
       - run:
@@ -16,7 +19,7 @@ jobs:
           command: uv sync
       - run:
           name: Run tests
-          command: uv run pytest --junitxml=junit.xml || ((($? == 5)) && echo 'Did not find any tests to run.')
+          command: uv run pytest tests/ -v --junitxml=junit.xml
       - store_test_results:
           path: junit.xml
   deploy:
