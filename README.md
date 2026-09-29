@@ -5,6 +5,9 @@ Esta es una API RESTful desarrollada con **FastAPI** y **SQLAlchemy** (modo así
 
 La arquitectura está diseñada para ser escalable, cuenta con persistencia de datos en PostgreSQL, está completamente dockerizada, y posee una suite integral de pruebas End-to-End (E2E) para garantizar su robustez frente a errores de lógica o validaciones asíncronas.
 
+## Badges
+[![CircleCI](https://dl.circleci.com/status-badge/img/circleci/XZTndtAwv9XQN3WLyPAvnc/3MgNayMbunoTswwNGr1Vrd/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/circleci/XZTndtAwv9XQN3WLyPAvnc/3MgNayMbunoTswwNGr1Vrd/tree/main)
+
 ## Tecnologías Utilizadas
 * **Lenguaje:** Python 3.14+
 * **Framework Web:** FastAPI
