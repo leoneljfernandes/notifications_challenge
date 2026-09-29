@@ -5,6 +5,34 @@ Esta es una API RESTful desarrollada con **FastAPI** y **SQLAlchemy** (modo así
 
 La arquitectura está diseñada para ser escalable, cuenta con persistencia de datos en PostgreSQL, está completamente dockerizada, y posee una suite integral de pruebas End-to-End (E2E) para garantizar su robustez frente a errores de lógica o validaciones asíncronas.
 
+## Tecnologías Utilizadas
+* **Lenguaje:** Python 3.14+
+* **Framework Web:** FastAPI
+* **ORM y Base de Datos:** SQLAlchemy 2.0 (modo asíncrono), PostgreSQL (con `asyncpg`), SQLite en memoria (para tests).
+* **Validación y Tipado:** Pydantic V2
+* **Autenticación y Seguridad:** JWT, Passlib (Bcrypt)
+* **Testing:** Pytest, HTTPX (TestClient), aiosqlite
+* **Infraestructura:** Docker, Docker Compose
+* **Gestor de Paquetes:** uv
+
+## Decisiones Arquitectónicas
+
+1. **Patrón Strategy (Estrategia):**
+   Se implementó para el envío de notificaciones. La lógica de despacho de cada canal (SMS, Email, Push) se encapsuló en clases independientes que heredan de una clase base. 
+   * **¿Por qué?** Respeta el principio Open/Closed (SOLID). Si el día de mañana se necesita agregar un nuevo canal (ej. WhatsApp o Slack), solo se debe crear una nueva clase que herede de la base, sin modificar el despachador ni los endpoints, manteniendo el código escalable y fácil de mantener.
+
+2. **Base de Datos y ORM Asíncrono (`asyncpg`):**
+   Se optó por utilizar SQLAlchemy de forma puramente asíncrona.
+   * **¿Por qué?** Las APIs web son inherentemente procesos limitados por Entrada/Salida (I/O-bound). Al hacer las llamadas a la base de datos asíncronas, el servidor FastAPI no bloquea el hilo principal y puede atender miles de peticiones concurrentes mientras espera que Postgres responda.
+
+3. **Carga Proactiva de Relaciones (Eager Loading):**
+   Para la relación entre Notificaciones y Usuarios se definió el parámetro `lazy="selectin"` en el modelo ORM.
+   * **¿Por qué?** SQLAlchemy asíncrono no soporta el "Lazy Loading" clásico, lo que genera errores `MissingGreenlet` en tiempo de ejecución. Al configurarlo de esta manera, nos aseguramos de que el usuario siempre esté disponible en memoria cuando se despacha la notificación.
+
+4. **Testing Aislado (Clean-Execute-Clean):**
+   La suite de pruebas utiliza una base de datos local SQLite configurada con `aiosqlite`, aplicando el patrón Clean-Execute-Clean a través de fixtures de Pytest.
+   * **¿Por qué?** Garantiza que cada test se ejecute en un entorno prístino (tablas creadas y destruidas por cada test), asegurando que ninguna prueba falle por "datos basura" dejados por un test anterior y aislando la base de datos de producción/desarrollo.
+
 ## Estructura del Proyecto
 
 ```text
@@ -97,3 +125,16 @@ Si deseas ejecutar un archivo de pruebas en específico:
 ```bash
 uv run pytest tests/test_notifications.py -v
 ```
+
+## Aspectos Posibles a Mejorar
+
+Toda aplicación tiene oportunidad de crecimiento. Para llevar este proyecto a un nivel totalmente productivo ("Enterprise-grade"), se recomendaría implementar:
+
+1. **Colas de Mensajería Asíncrona (Celery / RabbitMQ / Redis):**
+   Actualmente, la petición de despachar la notificación se procesa en el mismo hilo HTTP (aunque de forma asíncrona). Si el envío del SMS tarda 5 segundos por el proveedor, la respuesta a la API tardará 5 segundos. Introducir un "Task Queue" permitiría retornar un `202 Accepted` de manera instantánea y delegar el envío a un worker secundario en background (ej. Celery, ARQ).
+2. **Migraciones de Base de Datos (Alembic):**
+   Hoy en día la app utiliza `Base.metadata.create_all` al inicializar. En producción es crucial tener control de versiones sobre los cambios estructurales de la base de datos utilizando **Alembic** para correr migraciones de forma segura.
+3. **Paginación:**
+   El endpoint `/my-notifications` devuelve una lista plana. Si un usuario tiene miles de notificaciones, esto podría impactar el rendimiento. Sería ideal implementar paginación mediante `limit` y `offset` (o cursores).
+4. **Manejo Centralizado de Excepciones:**
+   El patrón Strategy arroja actualmente `ValueError` cuando faltan parámetros específicos en la metadata. Crear un *Exception Handler* global en FastAPI que atrape estos `ValueError` específicos y los traduzca amigablemente en un `HTTP 400 Bad Request` mejoraría significativamente la experiencia del desarrollador que consuma la API.
