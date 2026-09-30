@@ -23,7 +23,7 @@ jobs:
           command: uv run coverage run --source=app -m pytest tests/ -v --junitxml=junit.xml
       - run:
           name: Upload coverage to Coveralls
-          command: uv run coveralls
+          command: uv run coveralls --verbose
       - store_test_results:
           path: junit.xml
 
