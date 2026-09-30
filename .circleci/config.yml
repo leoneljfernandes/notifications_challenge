@@ -1,9 +1,10 @@
-# This config was automatically generated from your source code
-# Stacks detected: deps:python:.
 version: 2.1
+
+orbs:
+  coveralls: coveralls/coveralls@2.2.5
+
 jobs:
   test-python:
-    # Install dependencies and run tests
     docker:
       - image: cimg/python:3.12
     environment:
@@ -18,12 +19,15 @@ jobs:
           name: Install dependencies
           command: uv sync
       - run:
-          name: Run tests
-          command: uv run pytest tests/ -v --junitxml=junit.xml
+          name: Run tests with coverage
+          command: uv run coverage run --source=app -m pytest tests/ -v --junitxml=junit.xml
+      - run:
+          name: Upload coverage to Coveralls
+          command: uv run coveralls
       - store_test_results:
           path: junit.xml
+
   deploy:
-    # This is an example deploy job, not actually used by the workflow
     docker:
       - image: cimg/base:stable
     steps:
@@ -34,7 +38,6 @@ jobs:
               --environment-name="default" \
               --component-name="deploy" \
               --target-version="1.0.${CIRCLE_BUILD_NUM}-${CIRCLE_SHA1:0:7}"
-      # Replace this with steps to deploy to users
       - run:
           name: deploy
           command: '#e.g. ./deploy.sh'
@@ -49,10 +52,8 @@ jobs:
           name: Update deployment status to failed
           command: circleci run release update deploy --status=FAILED
           when: on_fail
+
 workflows:
   build-and-test:
     jobs:
       - test-python
-    # - deploy:
-    #     requires:
-    #       - test-python
