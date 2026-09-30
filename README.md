@@ -8,6 +8,8 @@ La arquitectura está diseñada para ser escalable, cuenta con persistencia de d
 ## Badges
 [![CircleCI](https://dl.circleci.com/status-badge/img/circleci/XZTndtAwv9XQN3WLyPAvnc/3MgNayMbunoTswwNGr1Vrd/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/circleci/XZTndtAwv9XQN3WLyPAvnc/3MgNayMbunoTswwNGr1Vrd/tree/main)
 
+[![Coverage Status](https://coveralls.io/repos/github/leoneljfernandes/notifications_challenge/badge.svg?branch=main)](https://coveralls.io/github/leoneljfernandes/notifications_challenge?branch=main)
+
 ## Tecnologías Utilizadas
 * **Lenguaje:** Python 3.14+
 * **Framework Web:** FastAPI
