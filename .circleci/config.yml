@@ -24,7 +24,7 @@ jobs:
             uv run coverage run --source=app -m pytest tests/ -v --junitxml=junit.xml
             uv run coverage lcov -o coverage.lcov
       - coveralls/upload:
-          path_to_lcov: coverage.lcov
+          coverage_file: coverage.lcov
       - store_test_results:
           path: junit.xml
 
