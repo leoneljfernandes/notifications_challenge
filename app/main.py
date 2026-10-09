@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 from contextlib import asynccontextmanager
 from app.api import api_router
 from app.database import engine as db_engine
 from app.models import Base
 from app.api.notification import router as notification_router
+from app.telemetry import setup_telemetry
 
 
 
@@ -16,6 +18,9 @@ async def lifespan(app: FastAPI):
 
     
 app = FastAPI(lifespan=lifespan)
+
+Instrumentator().instrument(app).expose(app, endpoint='/metrics')
+setup_telemetry(app, db_engine)
 
 
 app.include_router(api_router, prefix='/api')

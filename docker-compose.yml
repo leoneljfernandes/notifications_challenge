@@ -29,6 +29,8 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 5432
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+      OTEL_SERVICE_NAME: notifications-api
     ports:
       - "8000:8000"
     volumes:
@@ -36,7 +38,88 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      tempo:
+        condition: service_started
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     
+  # Servicio 3: Prometheus (recolecta métricas de /metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: always
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --enable-feature=exemplar-storage
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+      - prometheus_data:/prometheus
+    depends_on:
+      - backend
+
+  # Servicio 4: Grafana (dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  # Servicio 5: Loki (almacenamiento de logs)
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    restart: always
+    command: ["-config.file=/etc/loki/loki.yml"]
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki.yml:/etc/loki/loki.yml:ro,z
+      - loki_data:/loki
+
+  # Servicio 6: Alloy (lee los logs de los contenedores y los envía a Loki)
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    restart: always
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    security_opt:
+      - label=disable
+    volumes:
+      - ./monitoring/alloy.river:/etc/alloy/config.alloy:ro,z
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - loki
+
+  # Servicio 7: Tempo (almacenamiento de trazas, recibe OTLP en 4317)
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    restart: always
+    user: root
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports:
+      - "3200:3200"
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo/tempo.yml:ro,z
+      - tempo_data:/var/tempo
+
 volumes:
   pgdata:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
