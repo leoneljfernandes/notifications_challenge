@@ -18,6 +18,7 @@ La arquitectura está diseñada para ser escalable, cuenta con persistencia de d
 * **Autenticación y Seguridad:** JWT, Passlib (Bcrypt)
 * **Testing:** Pytest, HTTPX (TestClient), aiosqlite
 * **Infraestructura:** Docker, Docker Compose
+* **Observabilidad:** Prometheus (métricas), Loki + Grafana Alloy (logs), Tempo + OpenTelemetry (trazas distribuidas), Grafana (visualización)
 * **Gestor de Paquetes:** uv
 
 ## Decisiones Arquitectónicas
@@ -53,6 +54,7 @@ notifications_challenge/
 │   │   └── user.py
 │   ├── database.py                 # Configuración del Engine Asíncrono de SQLAlchemy
 │   ├── main.py                     # Punto de entrada de la aplicación FastAPI (Lifespan events)
+│   ├── telemetry.py                # Configuración de OpenTelemetry (trazas) y logs con trace_id
 │   ├── models/                     # Modelos ORM (SQLAlchemy)
 │   │   ├── notification.py
 │   │   └── user.py
@@ -71,7 +73,16 @@ notifications_challenge/
 │   ├── test_login.py               # Casos de prueba de autenticación
 │   ├── test_notifications.py       # Casos de prueba de notificaciones, estrategias y validaciones
 │   └── test_users.py               # Casos de prueba de registro
-├── docker-compose.yml              # Orquestación de contenedores (App FastAPI + PostgreSQL)
+├── monitoring/                     # Stack de observabilidad (toda la config versionada)
+│   ├── prometheus.yml              # Targets de scrape de Prometheus
+│   ├── loki.yml                    # Configuración de Loki
+│   ├── tempo.yml                   # Configuración de Tempo (receptor OTLP)
+│   ├── alloy.river                 # Recolector de logs de los contenedores hacia Loki
+│   ├── build_dashboard.py          # Generador del dashboard de Grafana
+│   └── grafana/
+│       ├── provisioning/           # Datasources y proveedor de dashboards (auto-carga)
+│       └── dashboards/             # Dashboard "Notifications API - Observabilidad" (JSON)
+├── docker-compose.yml              # Orquestación (App, PostgreSQL, Prometheus, Grafana, Loki, Alloy, Tempo)
 ├── Dockerfile                      # Definición de la imagen de Docker
 ├── pyproject.toml                  # Dependencias del entorno gestionadas por 'uv'
 ├── pytest.ini                      # Configuración de rutas (PYTHONPATH) para pytest
@@ -89,19 +100,23 @@ El proyecto utiliza `uv` como gestor de paquetes (mucho más rápido que pip). S
    ```
 
 2. **Configuración de Variables de Entorno:**
-   Asegúrate de contar con el archivo `.env` en la raíz del proyecto. Debe contener las credenciales de tu base de datos y la clave JWT:
+   Asegúrate de contar con el archivo `.env` en la raíz del proyecto (no se versiona). Debe contener las credenciales de la base de datos y la clave JWT:
    ```ini
-   POSTGRES_USER=tu_usuario
-   POSTGRES_PASSWORD=tu_contraseña
-   POSTGRES_DB=notifications_db
-   # URL para el contenedor de Postgres
-   DATABASE_URL=postgresql+asyncpg://tu_usuario:tu_contraseña@postgres_db:5432/notifications_db
+   DB_USER=tu_usuario
+   DB_PASSWORD=tu_contraseña
+   DB_NAME=notifications_db
+   DB_HOST=localhost
+   DB_PORT=5432
    SECRET_KEY=tu_super_clave_secreta_jwt
+   # Opcional: credenciales de Grafana (por defecto admin/admin)
+   GRAFANA_USER=admin
+   GRAFANA_PASSWORD=admin
    ```
+   > Dentro de Docker Compose, `DB_HOST` y `DB_PORT` se sobreescriben automáticamente para apuntar al contenedor `db`.
 
 ## Ejecución de la API
 
-La aplicación está dockerizada para evitar problemas de compatibilidad de entornos. La forma recomendada de levantar el proyecto es a través de Docker Compose, el cual levantará tanto la API como la base de datos PostgreSQL.
+La aplicación está dockerizada para evitar problemas de compatibilidad de entornos. La forma recomendada de levantar el proyecto es a través de Docker Compose, el cual levantará la API, la base de datos PostgreSQL y todo el stack de observabilidad ya configurado.
 
 **Levantar los contenedores:**
 ```bash
@@ -111,11 +126,40 @@ docker compose up --build
 Una vez que los contenedores estén corriendo ("Container postgres_db Healthy"), podrás acceder a:
 - **API Base:** [http://localhost:8000](http://localhost:8000)
 - **Documentación Interactiva (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Grafana (dashboards):** [http://localhost:3000](http://localhost:3000) (usuario/contraseña por defecto: `admin` / `admin`)
+- **Prometheus:** [http://localhost:9090](http://localhost:9090)
 
 Para detener la aplicación, presiona `CTRL+C` en la terminal o ejecuta:
 ```bash
 docker compose down
 ```
+
+## Observabilidad (Métricas, Logs y Trazas)
+
+El proyecto incluye un stack de observabilidad completo que **se levanta junto con la API y viene preconfigurado**: no requiere importar dashboards ni crear datasources a mano.
+
+| Pilar | Herramienta | Cómo se alimenta |
+|-------|-------------|------------------|
+| Métricas | **Prometheus** (:9090) | La API expone `/metrics` con `prometheus-fastapi-instrumentator`; Prometheus lo consulta cada 15 s. |
+| Logs | **Loki** (:3100) + **Grafana Alloy** | Alloy lee los logs de todos los contenedores vía el socket de Docker y los envía a Loki. |
+| Trazas | **Tempo** (:3200) + **OpenTelemetry** | La API instrumenta FastAPI y SQLAlchemy (cada query SQL es un span) y exporta por OTLP/gRPC a Tempo. |
+| Visualización | **Grafana** (:3000) | Datasources y dashboard provisionados automáticamente desde `monitoring/grafana/`. |
+
+### Cómo verlo
+1. Levantar todo: `docker compose up -d --build`
+2. Generar tráfico, por ejemplo desde [Swagger UI](http://localhost:8000/docs).
+3. Abrir [Grafana](http://localhost:3000) (`admin` / `admin`) y entrar al dashboard **Notifications API - Observabilidad**.
+
+El dashboard incluye: requests/s, porcentaje de errores 5xx, latencia p50/p95/p99 (global y por endpoint), CPU y memoria del proceso, logs del backend (con buscador y filtro de errores) y trazas recientes/lentas.
+
+### Correlación entre pilares
+Cada línea de log incluye `trace_id` y `span_id`. Desde un log en Grafana se puede saltar a su traza en Tempo, y desde una traza a sus logs en Loki. También se puede explorar cada fuente desde **Explore** (por ejemplo `{container="backend_app"}` en Loki).
+
+### Persistencia y reproducibilidad
+- **Configuración:** todo (datasources, dashboard, scrape configs) está versionado en `monitoring/`. Cualquier persona que clone el repo y ejecute `docker compose up` obtiene el mismo resultado, incluso desde cero.
+- **Datos:** las métricas, logs y trazas se guardan en volúmenes de Docker (`prometheus_data`, `loki_data`, `tempo_data`, `grafana_data`) y sobreviven a `docker compose down`. Con `docker compose down -v` se borran los datos (y también los de PostgreSQL), pero la configuración se vuelve a aplicar al siguiente arranque.
+- **Tracing opcional:** la instrumentación de trazas solo se activa si existe la variable `OTEL_EXPORTER_OTLP_ENDPOINT` (definida en el compose), por lo que los tests y la ejecución local no necesitan Tempo.
+- Para modificar el dashboard, editar `monitoring/build_dashboard.py` y ejecutar `python3 monitoring/build_dashboard.py`.
 
 ## Ejecución de Pruebas (Tests E2E)
 
