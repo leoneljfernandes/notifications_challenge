@@ -1,5 +1,5 @@
 # 1. Imagen base oficial ligera de Python
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # 2. Instalar uv desde la imagen oficial de Astral
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -19,6 +19,8 @@ RUN uv sync --frozen --no-install-project
 
 # 7. Copiar el código fuente de tu aplicación
 COPY app/ ./app
+COPY alembic/ ./alembic
+COPY alembic.ini ./
 
 # 8. Agregar el entorno virtual de uv al PATH
 ENV PATH="/code/.venv/bin:$PATH"

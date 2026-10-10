@@ -13,7 +13,7 @@ La arquitectura está diseñada para ser escalable, cuenta con persistencia de d
 ## Tecnologías Utilizadas
 * **Lenguaje:** Python 3.14+
 * **Framework Web:** FastAPI
-* **ORM y Base de Datos:** SQLAlchemy 2.0 (modo asíncrono), PostgreSQL (con `asyncpg`), SQLite en memoria (para tests).
+* **ORM y Base de Datos:** SQLAlchemy 2.0 (modo asíncrono), PostgreSQL (con `asyncpg`), SQLite en memoria (para tests), Alembic (migraciones).
 * **Validación y Tipado:** Pydantic V2
 * **Autenticación y Seguridad:** JWT, Passlib (Bcrypt)
 * **Testing:** Pytest, HTTPX (TestClient), aiosqlite
@@ -54,6 +54,7 @@ notifications_challenge/
 │   │   └── user.py
 │   ├── database.py                 # Configuración del Engine Asíncrono de SQLAlchemy
 │   ├── main.py                     # Punto de entrada de la aplicación FastAPI (Lifespan events)
+│   ├── seed.py                     # Datos de ejemplo para desarrollo (3 usuarios, 6 notificaciones)
 │   ├── telemetry.py                # Configuración de OpenTelemetry (trazas) y logs con trace_id
 │   ├── models/                     # Modelos ORM (SQLAlchemy)
 │   │   ├── notification.py
@@ -68,6 +69,11 @@ notifications_challenge/
 │   │   ├── push.py                 # Estrategia concreta de notificaciones Push
 │   │   └── sms.py                  # Estrategia concreta de SMS
 │   └── utils/
+├── alembic/                        # Migraciones de base de datos (Alembic)
+│   ├── env.py                      # Configuración: URL desde app.config, metadata de los modelos, modo async
+│   ├── script.py.mako              # Plantilla de cada migración nueva
+│   └── versions/                   # Migraciones versionadas (una por cambio de esquema)
+├── alembic.ini                     # Configuración de Alembic (ubicación de los scripts y logging)
 ├── tests/                          # Suite de pruebas E2E (Pytest)
 │   ├── conftest.py                 # Configuración DB asíncrona en memoria para tests (Clean-Setup-Clean)
 │   ├── test_login.py               # Casos de prueba de autenticación
@@ -123,6 +129,8 @@ La aplicación está dockerizada para evitar problemas de compatibilidad de ento
 docker compose up --build
 ```
 
+El orden de arranque es `db` (saludable) → `migrate` (aplica las migraciones y termina) → `backend`. Si una migración falla, el backend no arranca.
+
 Una vez que los contenedores estén corriendo ("Container postgres_db Healthy"), podrás acceder a:
 - **API Base:** [http://localhost:8000](http://localhost:8000)
 - **Documentación Interactiva (Swagger UI):** [http://localhost:8000/docs](http://localhost:8000/docs)
@@ -133,6 +141,66 @@ Para detener la aplicación, presiona `CTRL+C` en la terminal o ejecuta:
 ```bash
 docker compose down
 ```
+
+## Migraciones de Base de Datos (Alembic)
+
+El esquema de PostgreSQL se gestiona con **Alembic**. La aplicación ya **no** crea las tablas al arrancar (se eliminó `Base.metadata.create_all` del `lifespan`): las crean las migraciones. Los tests siguen usando `create_all` sobre SQLite.
+
+### Cómo funciona
+- `alembic/env.py` toma la URL de conexión de `app.config.settings` (no de `alembic.ini`) y usa `Base.metadata` como fuente del esquema deseado. Funciona en modo asíncrono (`asyncpg`).
+- Cada cambio de esquema es un archivo en `alembic/versions/`. Alembic guarda la revisión actual de cada base en la tabla `alembic_version`.
+- Con `--autogenerate`, Alembic compara los modelos contra la base real y escribe la migración con la diferencia.
+- En Docker Compose, el servicio `migrate` ejecuta `alembic upgrade head` antes de levantar el backend.
+
+### Comandos habituales
+Con la base de datos levantada (`docker compose up -d db`):
+
+```bash
+uv run alembic upgrade head                        # aplicar todas las migraciones pendientes
+uv run alembic current                             # revisión en la que está la base
+uv run alembic history --verbose                   # historial de migraciones
+uv run alembic downgrade -1                        # deshacer la última migración
+uv run alembic check                               # verificar si los modelos difieren de la base
+uv run alembic upgrade head --sql                  # ver el SQL sin ejecutarlo
+```
+
+### Flujo para un cambio de esquema
+1. Modificar el modelo en `app/models/` (por ejemplo, agregar una columna).
+2. Generar la migración:
+   ```bash
+   uv run alembic revision --autogenerate -m "descripcion del cambio"
+   ```
+3. **Revisar el archivo generado** en `alembic/versions/`. El autogenerate no detecta todo (por ejemplo, un renombre de columna aparece como borrar + crear, y los cambios en enums requieren ajuste manual).
+4. Aplicarla con `uv run alembic upgrade head` y comprobar con `uv run alembic check` que no queden diferencias.
+5. Versionar el modelo y la migración en el mismo commit.
+
+> **Importante:** el autogenerate compara contra la base real. Si las tablas ya existen (por ejemplo, creadas antes con `create_all`), la migración inicial sale vacía. Para generarla, usar una base sin tablas. Si necesitás conservar una base existente, marcá su versión sin ejecutar nada con `uv run alembic stamp head`.
+
+> Los modelos se registran en `Base.metadata` al importarse. Si se agrega un módulo nuevo en `app/models/`, hay que importarlo en `alembic/env.py`; de lo contrario, el autogenerate no lo verá.
+
+## Datos de ejemplo (Seed)
+
+`app/seed.py` carga datos de desarrollo: **3 usuarios** con **2 notificaciones cada uno**, combinando los tres canales (`email`, `sms`, `push`). Una única notificación (la de bienvenida de Ana) está marcada como leída.
+
+| Usuario | Rol | Notificaciones |
+|---------|-----|----------------|
+| `ana@example.com` | admin | Email (leída), SMS |
+| `bruno@example.com` | usuario | Push, Email |
+| `carla@example.com` | usuario | SMS, Push |
+
+Todos los usuarios del seed tienen la contraseña `Password123` (solo para desarrollo).
+
+Ejecutar **después de aplicar las migraciones**:
+
+```bash
+# Local (con la base levantada)
+uv run python -m app.seed
+
+# Dentro de Docker Compose
+docker compose exec backend python -m app.seed
+```
+
+El seed es idempotente: si un usuario ya existe (por email), se omite junto con sus notificaciones, así que se puede correr varias veces sin duplicar datos.
 
 ## Observabilidad (Métricas, Logs y Trazas)
 
@@ -181,9 +249,7 @@ Toda aplicación tiene oportunidad de crecimiento. Para llevar este proyecto a u
 
 1. **Colas de Mensajería Asíncrona (Celery / RabbitMQ / Redis):**
    Actualmente, la petición de despachar la notificación se procesa en el mismo hilo HTTP (aunque de forma asíncrona). Si el envío del SMS tarda 5 segundos por el proveedor, la respuesta a la API tardará 5 segundos. Introducir un "Task Queue" permitiría retornar un `202 Accepted` de manera instantánea y delegar el envío a un worker secundario en background (ej. Celery, ARQ).
-2. **Migraciones de Base de Datos (Alembic):**
-   Hoy en día la app utiliza `Base.metadata.create_all` al inicializar. En producción es crucial tener control de versiones sobre los cambios estructurales de la base de datos utilizando **Alembic** para correr migraciones de forma segura.
-3. **Paginación:**
+2. **Paginación:**
    El endpoint `/my-notifications` devuelve una lista plana. Si un usuario tiene miles de notificaciones, esto podría impactar el rendimiento. Sería ideal implementar paginación mediante `limit` y `offset` (o cursores).
-4. **Manejo Centralizado de Excepciones:**
+3. **Manejo Centralizado de Excepciones:**
    El patrón Strategy arroja actualmente `ValueError` cuando faltan parámetros específicos en la metadata. Crear un *Exception Handler* global en FastAPI que atrape estos `ValueError` específicos y los traduzca amigablemente en un `HTTP 400 Bad Request` mejoraría significativamente la experiencia del desarrollador que consuma la API.

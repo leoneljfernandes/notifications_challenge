@@ -15,6 +15,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    favorite_color = Column(String, nullable=True)
 
     reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
         back_populates="user",
